@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-05-20
+
+### Changed
+- `debug-stacktrace`: Add local transport mode via dbhub for debugging Phoenix traces without SSH/VPN
+- `debug-stacktrace`: Use explicit `YYYY-MM-DD` date format instead of relative formats for macOS compatibility
+
 ## 2026-04-29
 
 ### Added
