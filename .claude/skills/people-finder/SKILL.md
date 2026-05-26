@@ -7,21 +7,23 @@ description: People Finder re-indexing, scoring weights, and employee search. Us
 
 ## Re-indexing
 
-The People Finder uses Qdrant for employee search. To re-index:
+The People Finder uses Qdrant for employee search. Data is tenant-scoped via `org_uuid`. To re-index:
 
 ```bash
 # 1. Get a fresh Decidalo bearer token:
 #    Log in to https://valantic.decidalo.app/
-#    DevTools → Network → copy Authorization: Bearer eyJ... header
+#    DevTools -> Network -> copy Authorization: Bearer eyJ... header
 
 # Full re-index (drops + recreates collection)
-docker exec -it adk-orchestrator python -m src.scraper.cli index --full --bearer-token "eyJ..."
+docker exec -it adk-orchestrator python -m src.scraper.cli index --full \
+  --org-uuid "<organisation-uuid>" --bearer-token "eyJ..."
 
 # Single user update (no downtime)
-docker exec -it adk-orchestrator python -m src.scraper.cli index --user-id 170 --bearer-token "eyJ..."
+docker exec -it adk-orchestrator python -m src.scraper.cli index --user-id 170 \
+  --org-uuid "<organisation-uuid>" --bearer-token "eyJ..."
 ```
 
-**Important**: Bearer token expires. Always pass a fresh one. `--full` causes brief search downtime.
+**Important**: Bearer token expires. Always pass a fresh one. `--full` causes brief search downtime. `--org-uuid` is required - get it from the platform's Organisation entity.
 
 ## Scoring Weights
 
