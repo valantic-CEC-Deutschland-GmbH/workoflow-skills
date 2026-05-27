@@ -113,17 +113,22 @@ docker-compose -f docker-compose-prod.yml logs -f --tail=20 frankenphp
 
 ## Deploying orchestrator
 
+The orchestrator image (`patricks1987/workoflow-orchestrator:main`) is built externally. When the user mentions the orchestrator was rebuilt, updated, or needs deploying, always pull the new image and recreate the container - do not just restart.
+
 ```bash
 cd $PROD_ORCHESTRATOR_DIR
-docker-compose restart adk-orchestrator
-docker-compose logs -f adk-orchestrator
+docker-compose pull adk-orchestrator
+docker-compose up -d adk-orchestrator
+docker-compose logs -f --tail=20 adk-orchestrator
 ```
 
-After deploying new orchestrator agents, clear platform cache:
+After deploying the orchestrator, always clear the platform's agent cache so it picks up any new agent definitions:
 ```bash
 cd $PROD_DEPLOY_DIR
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:pool:clear cache.app
 ```
+
+**Note:** `docker-compose restart` reuses the old image - never use it for orchestrator deploys. Always use `pull` + `up -d` to ensure the new image is running.
 
 ## Rollback
 
