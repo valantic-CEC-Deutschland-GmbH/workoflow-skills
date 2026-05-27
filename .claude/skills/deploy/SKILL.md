@@ -5,12 +5,20 @@ description: Deploy code to the Workoflow production server. Use when the user s
 
 # Deploy to Production
 
+## IMPORTANT: Always use the deploy scripts
+
+Do NOT run manual SSH commands for deployment. Use the scripts below - they handle VPN checks, SSH, sudo, git pull, docker build, cache clearing, and schema updates automatically in a single command.
+
 ## Deploy Scripts
 
 ```bash
-# Integration Platform (git pull, build, restart)
+# Integration Platform - full automated deploy (git pull, build, up, schema, cache)
 workoflow-skills/.claude/skills/deploy/deploy-platform.sh prod     # Production
 workoflow-skills/.claude/skills/deploy/deploy-platform.sh stage    # Staging
+
+# Orchestrator - pull new image, recreate container, clear agent cache
+workoflow-skills/.claude/skills/deploy/deploy-orchestrator.sh prod     # Production
+workoflow-skills/.claude/skills/deploy/deploy-orchestrator.sh stage    # Staging
 
 # Grafana Metrics
 workoflow-skills/.claude/skills/deploy/deploy-metrics.sh deploy    # Pull + restart
@@ -22,127 +30,104 @@ workoflow-skills/.claude/skills/deploy/deploy-metrics.sh status    # Container s
 
 All scripts check VPN connectivity before proceeding.
 
-## Manual Deployment
+## What each script does
 
-### Environment
+### deploy-platform.sh
+1. Checks VPN connectivity
+2. SSHs into server as docker user
+3. `git fetch` + `git reset --hard origin/<branch>`
+4. Runs `setup.sh prod` which: builds container, `up -d` all services, clears cache, runs `doctrine:schema:update --force`, warms cache
 
-Read these variables from `workoflow-skills/.env`:
+### deploy-orchestrator.sh
+1. Checks VPN connectivity
+2. SSHs into server as docker user
+3. `docker-compose pull adk-orchestrator` (fetches new image)
+4. `docker-compose up -d adk-orchestrator` (recreates container with new image)
+5. Waits for health check to pass
+6. Clears platform agent cache (`cache:pool:clear cache.app`)
+
+## When to deploy what
+
+- **Platform code changed** (PHP, templates, assets, composer, npm) - run `deploy-platform.sh`
+- **Orchestrator image rebuilt** (user mentions orchestrator rebuild/update) - run `deploy-orchestrator.sh`
+- **Both changed** - run both scripts
+
+## Post-deploy verification
+
+After the script completes, verify with a quick SSH check if needed:
+```bash
+ssh val-workoflow-prod "sudo -iu docker bash -c 'cd /home/docker/docker-setups/workoflow-integration-platform && docker-compose -f docker-compose-prod.yml ps'"
+```
+
+## Pre-deploy checklist
+
+1. `composer code-check` passes (PHPStan + PHPCS)
+2. CHANGELOG.md updated
+3. Changes committed and pushed
+
+---
+
+## Reference: Manual deployment (only if scripts fail)
+
+### Environment variables
+
+Read from `workoflow-skills/.env`:
 
 | Variable | Purpose |
 |---|---|
-| `PROD_SSH_HOST` | Production server SSH alias |
-| `PROD_SSH_USER` | SSH user |
-| `PROD_DEPLOY_DIR` | Platform deploy directory |
-| `PROD_ORCHESTRATOR_DIR` | Orchestrator/n8n deploy directory |
+| `PROD_SSH_HOST` | Production server SSH alias (`val-workoflow-prod`) |
+| `PROD_SSH_USER` | SSH user (`docker`) |
+| `PROD_DEPLOY_DIR` | Platform directory (`/home/docker/docker-setups/workoflow-integration-platform`) |
+| `PROD_ORCHESTRATOR_DIR` | Orchestrator directory (`/home/docker/docker-setups/n8n`) |
 
-## VPN Check
-
-Before connecting, verify VPN:
-```bash
-ssh -o ConnectTimeout=5 -o BatchMode=yes $PROD_SSH_HOST echo "VPN OK" 2>/dev/null
-```
-If timeout → tell user: **VPN is not connected. Enable VPN and try again.** Do NOT proceed without VPN.
-
-## CRITICAL: Always use docker-compose-prod.yml
+### CRITICAL: Always use docker-compose-prod.yml for the platform
 
 ```bash
-# CORRECT — uses external volumes with production data
+# CORRECT - uses external volumes with production data
 docker-compose -f docker-compose-prod.yml <command>
 
-# WRONG — creates new prefixed volumes, LOSES production data!
+# WRONG - creates new prefixed volumes, LOSES production data!
 docker-compose <command>
 ```
 
-## Connection
+Note: The orchestrator directory uses plain `docker-compose.yml` (no `-f` flag needed).
+
+### Manual platform deploy
 
 ```bash
-ssh $PROD_SSH_HOST
-sudo -iu $PROD_SSH_USER
-cd $PROD_DEPLOY_DIR
-```
-
-## Deployment Sequence
-
-### 1. Pull latest code
-```bash
+ssh val-workoflow-prod
+sudo -iu docker
+cd /home/docker/docker-setups/workoflow-integration-platform
 git pull
-```
-
-### 2. Build the container
-```bash
 docker-compose -f docker-compose-prod.yml build frankenphp
-```
-
-### 3. Bring up services
-```bash
 docker-compose -f docker-compose-prod.yml up -d frankenphp messenger-worker scheduled-worker
-```
-
-### 4. Update database schema (if entities changed)
-```bash
-docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console doctrine:schema:update --dump-sql
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console doctrine:schema:update --force
-```
-
-### 5. Clear caches
-```bash
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:clear
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:pool:clear cache.app
 ```
 
-### 6. Verify
-```bash
-docker-compose -f docker-compose-prod.yml ps
-docker-compose -f docker-compose-prod.yml logs -f --tail=50 frankenphp
-docker stats --no-stream
-```
-
-## Quick deploy
+### Manual orchestrator deploy
 
 ```bash
-ssh $PROD_SSH_HOST
-sudo -iu $PROD_SSH_USER
-cd $PROD_DEPLOY_DIR
-git pull
-docker-compose -f docker-compose-prod.yml build frankenphp
-docker-compose -f docker-compose-prod.yml up -d frankenphp messenger-worker scheduled-worker
-docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console doctrine:schema:update --dump-sql
-docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:clear
-docker-compose -f docker-compose-prod.yml logs -f --tail=20 frankenphp
-```
-
-## Deploying orchestrator
-
-The orchestrator image (`patricks1987/workoflow-orchestrator:main`) is built externally. When the user mentions the orchestrator was rebuilt, updated, or needs deploying, always pull the new image and recreate the container - do not just restart.
-
-```bash
-cd $PROD_ORCHESTRATOR_DIR
+ssh val-workoflow-prod
+sudo -iu docker
+cd /home/docker/docker-setups/n8n
 docker-compose pull adk-orchestrator
 docker-compose up -d adk-orchestrator
-docker-compose logs -f --tail=20 adk-orchestrator
-```
-
-After deploying the orchestrator, always clear the platform's agent cache so it picks up any new agent definitions:
-```bash
-cd $PROD_DEPLOY_DIR
+# Then clear platform agent cache:
+cd /home/docker/docker-setups/workoflow-integration-platform
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:pool:clear cache.app
 ```
 
-**Note:** `docker-compose restart` reuses the old image - never use it for orchestrator deploys. Always use `pull` + `up -d` to ensure the new image is running.
+**Never use `docker-compose restart` for the orchestrator** - it reuses the old image. Always `pull` + `up -d`.
 
-## Rollback
+### Rollback
 
 ```bash
+cd /home/docker/docker-setups/workoflow-integration-platform
 git log --oneline -5
 git checkout <commit-hash>
 docker-compose -f docker-compose-prod.yml build frankenphp
 docker-compose -f docker-compose-prod.yml up -d frankenphp messenger-worker scheduled-worker
 docker-compose -f docker-compose-prod.yml exec frankenphp php bin/console cache:clear
 ```
-
-## Pre-deploy checklist
-
-1. `composer code-check` passes (PHPStan + PHPCS)
-2. Tests pass: `./vendor/bin/phpunit`
-3. CHANGELOG.md updated
-4. Assets built: `npm run build`
