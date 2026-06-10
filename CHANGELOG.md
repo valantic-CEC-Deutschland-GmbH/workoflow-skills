@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-10
+
+### Added
+- `check-chrome`: New skill for manual UI/UX reviews via the Chrome browser. Invoke with `/check-chrome <url>` (or no URL to use `LOCAL_APP_URL` from `.env`); walks the named flow with screenshots, deliberately tests error paths, and reports severity-ordered findings with improvement proposals. New `.env` keys: `LOCAL_APP_URL`, `LOCAL_TEST_AUTH_EMAIL`.
+
 ## 2026-05-26
 
 ### Changed
